@@ -1,5 +1,5 @@
 {
-  "originHash" : "d3545495f966d181c8ed0e6726250858166b7af7138b8ac3da51455ea29adabe",
+  "originHash" : "8270da6916168afc89c9115241dbfc1e80706f7e79362e9879ed70e9e206834d",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/soto-project/soto-codegenerator.git",
       "state" : {
-        "branch" : "no-endpoints",
-        "revision" : "e55edc5c679215f95fd22fe0c3179b157a6992ce"
+        "revision" : "4ad6be344438313eaf3e4014c734397988910440",
+        "version" : "7.5.0"
       }
     },
     {
