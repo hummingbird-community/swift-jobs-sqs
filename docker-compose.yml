@@ -2,17 +2,10 @@
 version: "3.3"
 
 services:
-  common: &common
-    build: .
-    volumes:
-      - ..:/working
-    working_dir: /working
-
   test:
-    <<: *common
-    build: .
+    image: swift:6.0
     volumes:
-      - ..:/working
+      - .:/working
     working_dir: /working
     depends_on:
       - localstack

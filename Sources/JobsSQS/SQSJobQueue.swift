@@ -78,12 +78,23 @@ public final class SQSJobQueue: JobQueueDriver {
             }
         }
     }
+    struct ActiveJob {
+        let body: String
+        let receiptHandle: String
+    }
+    /// what to do with failed jobs from last time queue was handled
+    public enum JobCleanup: Sendable {
+        case doNothing
+        case rerun
+        case remove
+    }
+
     let configuration: Configuration
     let sqs: SQS
     let queueURL: String
-    //let failedQueueURL: String
+    let failedQueueURL: String
     let jobRegistry: JobRegistry
-    let activeJobs: Mutex<[JobID: String]>
+    let activeJobs: Mutex<[JobID: ActiveJob]>
     let isStopped: Atomic<Bool>
 
     public init(sqs: SQS, configuration: Configuration, logger: Logger) async throws {
@@ -91,7 +102,7 @@ public final class SQSJobQueue: JobQueueDriver {
         self.configuration = configuration
         self.jobRegistry = .init()
         self.queueURL = try await Self.createQueue(queueName: "\(configuration.queueName)", sqs: sqs, logger: logger)
-        //self.failedQueueURL = try await Self.createQueue(queueName: "\(configuration.queueName)_failed.fifo", sqs: sqs, logger: logger)
+        self.failedQueueURL = try await Self.createQueue(queueName: "\(configuration.queueName)_failed", sqs: sqs, logger: logger)
         self.activeJobs = .init([:])
         self.isStopped = .init(false)
     }
@@ -113,6 +124,52 @@ public final class SQSJobQueue: JobQueueDriver {
                 throw SQSQueueError(.unexpectedSQSResponse, message: "GetQueueURL did not return a URL.")
             }
             return queueUrl
+        }
+    }
+
+    ///  Cleanup job queues
+    ///
+    /// This function is used to re-run or delete jobs on the failed queue. Failed jobs can be
+    /// pushed back into the pending queue to be re-run or removed.
+    ///
+    /// The job queue needs to be running when you call cleanup.
+    ///
+    /// - Parameters:
+    ///   - failedJobs: What to do with jobs in the failed queue
+    /// - Throws:
+    public func cleanup(
+        failedJobs: JobCleanup = .doNothing
+    ) async throws {
+        while true {
+            let receiveMessageResponse = try await self.sqs.receiveMessage(
+                maxNumberOfMessages: 10,
+                messageAttributeNames: ["id"],
+                queueUrl: self.failedQueueURL,
+                visibilityTimeout: configuration.visibilityTimeoutInSeconds
+            )
+            guard let messages = receiveMessageResponse.messages, messages.count > 0 else { break }
+            for message in messages {
+                guard let receiptHandle = message.receiptHandle else {
+                    throw SQSQueueError(.unexpectedSQSResponse, message: "Failed message doesnt have a receipt handle")
+                }
+                guard let body = message.body else {
+                    throw SQSQueueError(.unexpectedSQSResponse, message: "Failed message doesnt have a body")
+                }
+                guard let jobIDAttribute = message.messageAttributes?["id"] else { continue }
+                switch failedJobs {
+                case .rerun:
+                    _ = try await self.sqs.sendMessage(
+                        messageAttributes: ["id": jobIDAttribute],
+                        messageBody: body,
+                        queueUrl: self.queueURL
+                    )
+                    try await self.sqs.deleteMessage(queueUrl: self.failedQueueURL, receiptHandle: receiptHandle)
+                case .remove:
+                    try await self.sqs.deleteMessage(queueUrl: self.failedQueueURL, receiptHandle: receiptHandle)
+                case .doNothing:
+                    break
+                }
+            }
         }
     }
 
@@ -162,10 +219,10 @@ public final class SQSJobQueue: JobQueueDriver {
     /// - Parameters:
     ///   - jobID: Job id
     public func finished(jobID: JobID) async throws {
-        guard let receiptHandle = self.activeJobs.withLock({ $0[jobID] }) else {
+        guard let job = self.activeJobs.withLock({ $0[jobID] }) else {
             throw SQSQueueError(.internalError, message: "Queue receipt is not available for finished job")
         }
-        try await self.sqs.deleteMessage(queueUrl: self.queueURL, receiptHandle: receiptHandle)
+        try await self.sqs.deleteMessage(queueUrl: self.queueURL, receiptHandle: job.receiptHandle)
     }
 
     /// Flag job failed to process
@@ -173,7 +230,17 @@ public final class SQSJobQueue: JobQueueDriver {
     /// - Parameters:
     ///   - jobID: Job id
     public func failed(jobID: JobID, error: Error) async throws {
-        // TODO: Implement failed
+        guard let job = self.activeJobs.withLock({ $0[jobID] }) else {
+            throw SQSQueueError(.internalError, message: "Queue receipt is not available for finished job")
+        }
+        // delete from pending queue ...
+        try await self.sqs.deleteMessage(queueUrl: self.queueURL, receiptHandle: job.receiptHandle)
+        // and add to failed queue
+        _ = try await self.sqs.sendMessage(
+            messageAttributes: ["id": SQS.MessageAttributeValue(dataType: "String", stringValue: jobID.description)],
+            messageBody: job.body,
+            queueUrl: self.failedQueueURL
+        )
     }
 
     public func stop() async {
@@ -218,7 +285,8 @@ public final class SQSJobQueue: JobQueueDriver {
         }
 
         let jobID = JobID(value: jobIDString)
-        self.activeJobs.withLock { $0[jobID] = receiptHandle }
+        let activeJob = ActiveJob(body: body, receiptHandle: receiptHandle)
+        self.activeJobs.withLock { $0[jobID] = activeJob }
         do {
             let jobInstance = try self.jobRegistry.decode(ByteBuffer(string: body))
             return .init(id: jobID, result: .success(jobInstance))

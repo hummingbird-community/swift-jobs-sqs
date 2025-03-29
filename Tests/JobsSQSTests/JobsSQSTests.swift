@@ -32,18 +32,24 @@ final class SQSJobsTests {
         ProcessInfo.processInfo.environment["LOCALSTACK_ENDPOINT"]
     }
 
-    public func withSQSQueue<Value>(prefix: String, sqs: SQS, _ operation: (String) async throws -> Value) async throws -> Value {
-        let queueName = prefix.filter(\.isLetter) + UUID().uuidString
+    public func withSQSQueue<Value>(
+        queueName: String,
+        sqs: SQS,
+        delete: Bool = true,
+        _ operation: () async throws -> Value
+    ) async throws -> Value {
         let value: Value
         do {
-            value = try await operation(queueName)
+            value = try await operation()
         } catch {
             guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { throw error }
             try? await sqs.deleteQueue(queueUrl: queueURL)
             throw error
         }
-        guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { return value }
-        try await sqs.deleteQueue(queueUrl: queueURL)
+        if delete {
+            guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { return value }
+            try await sqs.deleteQueue(queueUrl: queueURL)
+        }
         return value
     }
 
@@ -53,18 +59,20 @@ final class SQSJobsTests {
     /// shutdown correctly
     @discardableResult public func testJobQueue<T>(
         numWorkers: Int,
-        //failedJobsInitialization: SQSJobQueue.JobCleanup = .remove,
-        queueName: String = #function,
+        failedJobsInitialization: SQSJobQueue.JobCleanup = .remove,
+        queuePrefix: String = #function,
+        queueName: String? = nil,
+        cleanUpQueue: Bool = true,
         test: (JobQueue<SQSJobQueue>) async throws -> T
     ) async throws -> T {
-        let queueName = queueName.filter(\.isLetter) + UUID().uuidString
+        let queueName = queueName ?? queuePrefix.filter(\.isLetter) + UUID().uuidString
         var logger = Logger(label: "SQSJobsTests")
         logger.logLevel = .debug
         let sqs = SQS(
             client: self.awsClient,
             endpoint: sqsEndpoint
         )
-        return try await withSQSQueue(prefix: queueName, sqs: sqs) { queueName in
+        return try await withSQSQueue(queueName: queueName, sqs: sqs, delete: cleanUpQueue) {
             let jobQueue = try await JobQueue(
                 .sqs(
                     sqs: sqs,
@@ -89,7 +97,7 @@ final class SQSJobsTests {
                 group.addTask {
                     try await serviceGroup.run()
                 }
-                //try await jobQueue.queue.cleanup(failedJobs: failedJobsInitialization, processingJobs: .remove, pendingJobs: .remove)
+                try await jobQueue.queue.cleanup(failedJobs: failedJobsInitialization)
                 let value = try await test(jobQueue)
                 await serviceGroup.triggerGracefulShutdown()
                 return value
@@ -318,7 +326,6 @@ final class SQSJobsTests {
 
     /// creates job that errors on first attempt, and is left on processing queue and
     /// is then rerun on startup of new server
-    /* Need the failed queue before we can continue with this
     @Test
     func testRerunAtStartup() async throws {
         struct TestParameters: JobParameters {
@@ -337,7 +344,8 @@ final class SQSJobsTests {
             succeededCounter.trigger()
             finished.store(true, ordering: .relaxed)
         }
-        try await self.testJobQueue(numWorkers: 4) { jobQueue in
+        let queueName = "testRerunAtStartup\(UUID().uuidString)"
+        try await self.testJobQueue(numWorkers: 4, queueName: queueName, cleanUpQueue: false) { jobQueue in
             jobQueue.registerJob(job)
 
             try await jobQueue.push(TestParameters())
@@ -346,18 +354,18 @@ final class SQSJobsTests {
 
             // stall to give job chance to start running
             try await Task.sleep(for: .milliseconds(50))
-
-            #expect(firstTime.load(ordering: .relaxed))
-            #expect(finished.load(ordering: .relaxed))
         }
 
-        try await self.testJobQueue(numWorkers: 4, failedJobsInitialization: .rerun) { jobQueue in
+        #expect(firstTime.load(ordering: .relaxed) == false)
+        #expect(finished.load(ordering: .relaxed) == false)
+
+        try await self.testJobQueue(numWorkers: 4, failedJobsInitialization: .rerun, queueName: queueName, cleanUpQueue: true) { jobQueue in
             jobQueue.registerJob(job)
             await succeededCounter.waitFor(count: 1)
-            #expect(finished.load(ordering: .relaxed))
         }
+        #expect(finished.load(ordering: .relaxed) == true)
     }
-*/
+
     @Test
     func testMultipleJobQueueHandlers() async throws {
         struct TestParameters: JobParameters {
@@ -376,7 +384,8 @@ final class SQSJobsTests {
             counter.trigger()
         }
         let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
-        try await withSQSQueue(prefix: "testMultipleJobQueueHandlers", sqs: sqs) { queueName in
+        let queueName = "testMultipleJobQueueHandlers\(UUID().uuidString)"
+        try await withSQSQueue(queueName: queueName, sqs: sqs) {
             let jobQueue = try await JobQueue(
                 SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
                 numWorkers: 2,

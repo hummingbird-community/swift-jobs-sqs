@@ -18,7 +18,7 @@ extension SQSJobQueue {
         public var visibilityTimeoutInSeconds: Int
         public var pollTime: Duration
 
-        public init(queueName: String, visibilityTimeoutInSeconds: Int = 15 * 60, pollTime: Duration = .milliseconds(100)) {
+        public init(queueName: String, visibilityTimeoutInSeconds: Int = 5 * 60, pollTime: Duration = .milliseconds(100)) {
             self.queueName = queueName
             self.visibilityTimeoutInSeconds = visibilityTimeoutInSeconds
             self.pollTime = pollTime
