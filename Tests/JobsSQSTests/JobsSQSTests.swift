@@ -29,7 +29,22 @@ final class SQSJobsTests {
     }
 
     var sqsEndpoint: String? {
-        ProcessInfo.processInfo.environment["USE_LOCALSTACK"] == "true" ? "http://localstack:4566" : nil
+        ProcessInfo.processInfo.environment["LOCALSTACK_ENDPOINT"]
+    }
+
+    public func withSQSQueue<Value>(prefix: String, sqs: SQS, _ operation: (String) async throws -> Value) async throws -> Value {
+        let queueName = prefix.filter(\.isLetter) + UUID().uuidString
+        let value: Value
+        do {
+            value = try await operation(queueName)
+        } catch {
+            guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { throw error }
+            try? await sqs.deleteQueue(queueUrl: queueURL)
+            throw error
+        }
+        guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { return value }
+        try await sqs.deleteQueue(queueUrl: queueURL)
+        return value
     }
 
     /// Helper function for test a server
@@ -49,22 +64,21 @@ final class SQSJobsTests {
             client: self.awsClient,
             endpoint: sqsEndpoint
         )
-        let jobQueue = try await JobQueue(
-            .sqs(
-                sqs: sqs,
-                configuration: .init(queueName: queueName),
-                logger: logger
-            ),
-            numWorkers: numWorkers,
-            logger: logger,
-            options: .init(
-                defaultRetryStrategy: .exponentialJitter(maxBackoff: .milliseconds(10))
+        return try await withSQSQueue(prefix: queueName, sqs: sqs) { queueName in
+            let jobQueue = try await JobQueue(
+                .sqs(
+                    sqs: sqs,
+                    configuration: .init(queueName: queueName),
+                    logger: logger
+                ),
+                numWorkers: numWorkers,
+                logger: logger,
+                options: .init(
+                    defaultRetryStrategy: .exponentialJitter(maxBackoff: .milliseconds(10))
+                )
             )
-        )
 
-        let value: T
-        do {
-            value = try await withThrowingTaskGroup(of: Void.self) { group in
+            return try await withThrowingTaskGroup(of: Void.self) { group in
                 let serviceGroup = ServiceGroup(
                     configuration: .init(
                         services: [jobQueue],
@@ -80,14 +94,7 @@ final class SQSJobsTests {
                 await serviceGroup.triggerGracefulShutdown()
                 return value
             }
-        } catch {
-            guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { throw error }
-            try? await sqs.deleteQueue(queueUrl: queueURL)
-            throw error
         }
-        guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { return value }
-        try? await sqs.deleteQueue(queueUrl: queueURL)
-        return value
     }
 
     @Test
@@ -368,42 +375,43 @@ final class SQSJobsTests {
             try await Task.sleep(for: .milliseconds(Int.random(in: 10..<50)))
             counter.trigger()
         }
-        let queueName = "testMultipleJobQueueHandlers" + UUID().uuidString
         let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
-        let jobQueue = try await JobQueue(
-            SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
-            numWorkers: 2,
-            logger: logger
-        )
-        jobQueue.registerJob(job)
-        let jobQueue2 = try await JobQueue(
-            SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
-            numWorkers: 2,
-            logger: logger
-        )
-        jobQueue2.registerJob(job)
-
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            let serviceGroup = ServiceGroup(
-                configuration: .init(
-                    services: [jobQueue, jobQueue2],
-                    gracefulShutdownSignals: [.sigterm, .sigint],
-                    logger: logger
-                )
+        try await withSQSQueue(prefix: "testMultipleJobQueueHandlers", sqs: sqs) { queueName in
+            let jobQueue = try await JobQueue(
+                SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
+                numWorkers: 2,
+                logger: logger
             )
-            group.addTask {
-                try await serviceGroup.run()
-            }
-            do {
-                for i in 0..<200 {
-                    try await jobQueue.push(TestParameters(value: i))
+            jobQueue.registerJob(job)
+            let jobQueue2 = try await JobQueue(
+                SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
+                numWorkers: 2,
+                logger: logger
+            )
+            jobQueue2.registerJob(job)
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                let serviceGroup = ServiceGroup(
+                    configuration: .init(
+                        services: [jobQueue, jobQueue2],
+                        gracefulShutdownSignals: [.sigterm, .sigint],
+                        logger: logger
+                    )
+                )
+                group.addTask {
+                    try await serviceGroup.run()
                 }
-                await counter.waitFor(count: 200)
-                await serviceGroup.triggerGracefulShutdown()
-            } catch {
-                Issue.record("\(String(reflecting: error))")
-                await serviceGroup.triggerGracefulShutdown()
-                throw error
+                do {
+                    for i in 0..<200 {
+                        try await jobQueue.push(TestParameters(value: i))
+                    }
+                    await counter.waitFor(count: 200)
+                    await serviceGroup.triggerGracefulShutdown()
+                } catch {
+                    Issue.record("\(String(reflecting: error))")
+                    await serviceGroup.triggerGracefulShutdown()
+                    throw error
+                }
             }
         }
     }
