@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - main
+    paths:
+    - '**.swift'
+    - '**.yml'
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-ci
+  cancel-in-progress: true
+
+env:
+  AWS_ACCESS_KEY_ID : "MYACCESSKEYID"
+  AWS_SECRET_ACCESS_KEY : "MYSECRETACCESSKEY"
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        image: ["swift:6.0", "swiftlang/swift:nightly-6.1-jammy"]
+    services:
+      localstack:
+        image: localstack/localstack        
+    container:
+      image: ${{ matrix.image }}
+      env:
+        LOCALSTACK_ENDPOINT : "http://localstack:4566"
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Test
+      run: |
+        swift test --enable-code-coverage
+    - name: Convert coverage files
+      run: |
+        llvm-cov export -format="lcov" \
+          .build/debug/swift-jobs-sqsPackageTests.xctest \
+          -ignore-filename-regex="\/Tests\/" \
+          -ignore-filename-regex="\/Benchmarks\/" \
+          -instr-profile .build/debug/codecov/default.profdata > info.lcov
+    - name: Upload to codecov.io
+      uses: codecov/codecov-action@v4
+      with:
+        files: info.lcov
+        token: ${{ secrets.CODECOV_TOKEN }}
