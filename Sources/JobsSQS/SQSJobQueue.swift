@@ -91,14 +91,16 @@ public final class SQSJobQueue: JobQueueDriver {
 
     let configuration: Configuration
     let sqs: SQS
+    let ssm: SSM
     let queueURL: String
     let failedQueueURL: String
     let jobRegistry: JobRegistry
     let activeJobs: Mutex<[JobID: ActiveJob]>
     let isStopped: Atomic<Bool>
 
-    public init(sqs: SQS, configuration: Configuration, logger: Logger) async throws {
+    public init(sqs: SQS, ssm: SSM, configuration: Configuration, logger: Logger) async throws {
         self.sqs = sqs
+        self.ssm = ssm
         self.configuration = configuration
         self.jobRegistry = .init()
         self.queueURL = try await Self.createQueue(queueName: "\(configuration.queueName)", sqs: sqs, logger: logger)
@@ -253,7 +255,8 @@ public final class SQSJobQueue: JobQueueDriver {
     /// - Parameter key: Metadata key
     /// - Returns: Associated ByteBuffer
     public func getMetadata(_ key: String) async throws -> ByteBuffer? {
-        nil
+        let response = try await ssm.getParameter(name: "SQSJobQueue/\(key)")
+        return response.parameter?.value.map { ByteBuffer(string: $0) }
     }
 
     /// Set job queue metadata
@@ -261,6 +264,7 @@ public final class SQSJobQueue: JobQueueDriver {
     ///   - key: Metadata key
     ///   - value: Associated ByteBuffer
     public func setMetadata(key: String, value: ByteBuffer) async throws {
+        _ = try await ssm.putParameter(name: "/swift-jobs/\(key)", overwrite: true, type: .string, value: String(buffer: value))
     }
 
     func popFirst() async throws -> JobQueueResult<JobID>? {
@@ -326,7 +330,7 @@ extension JobQueueDriver where Self == SQSJobQueue {
     /// - Parameters:
     ///   - redisConnectionPool: Redis connection pool
     ///   - configuration: configuration
-    public static func sqs(sqs: SQS, configuration: SQSJobQueue.Configuration, logger: Logger) async throws -> Self {
-        try await .init(sqs: sqs, configuration: configuration, logger: logger)
+    public static func sqs(sqs: SQS, ssm: SSM, configuration: SQSJobQueue.Configuration, logger: Logger) async throws -> Self {
+        try await .init(sqs: sqs, ssm: ssm, configuration: configuration, logger: logger)
     }
 }

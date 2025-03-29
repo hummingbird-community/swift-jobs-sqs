@@ -72,10 +72,12 @@ final class SQSJobsTests {
             client: self.awsClient,
             endpoint: sqsEndpoint
         )
+        let ssm = SSM(client: self.awsClient, endpoint: self.sqsEndpoint)
         return try await withSQSQueue(queueName: queueName, sqs: sqs, delete: cleanUpQueue) {
             let jobQueue = try await JobQueue(
                 .sqs(
                     sqs: sqs,
+                    ssm: ssm,
                     configuration: .init(queueName: queueName),
                     logger: logger
                 ),
@@ -384,16 +386,17 @@ final class SQSJobsTests {
             counter.trigger()
         }
         let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
+        let ssm = SSM(client: self.awsClient, endpoint: self.sqsEndpoint)
         let queueName = "testMultipleJobQueueHandlers\(UUID().uuidString)"
         try await withSQSQueue(queueName: queueName, sqs: sqs) {
             let jobQueue = try await JobQueue(
-                SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
+                SQSJobQueue(sqs: sqs, ssm: ssm, configuration: .init(queueName: queueName), logger: logger),
                 numWorkers: 2,
                 logger: logger
             )
             jobQueue.registerJob(job)
             let jobQueue2 = try await JobQueue(
-                SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
+                SQSJobQueue(sqs: sqs, ssm: ssm, configuration: .init(queueName: queueName), logger: logger),
                 numWorkers: 2,
                 logger: logger
             )
@@ -425,19 +428,29 @@ final class SQSJobsTests {
         }
     }
 
-    /*
+    @Test
     func testMetadata() async throws {
-        let redis = try createRedisConnectionPool(logger: Logger(label: "Jobs"))
-        let jobQueue = SQSJobQueue(redis)
-        let value = ByteBuffer(string: "Testing metadata")
-        try await jobQueue.setMetadata(key: "test", value: value)
-        let metadata = try await jobQueue.getMetadata("test")
-        XCTAssertEqual(metadata, value)
-        let value2 = ByteBuffer(string: "Testing metadata again")
-        try await jobQueue.setMetadata(key: "test", value: value2)
-        let metadata2 = try await jobQueue.getMetadata("test")
-        XCTAssertEqual(metadata2, value2)
-    }*/
+        let logger = {
+            var logger = Logger(label: "JobsTests")
+            logger.logLevel = .debug
+            return logger
+        }()
+        let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
+        let ssm = SSM(client: self.awsClient, endpoint: self.sqsEndpoint)
+
+        let queueName = "testMetadata\(UUID().uuidString)"
+        try await withSQSQueue(queueName: queueName, sqs: sqs) {
+            let jobQueue = try await SQSJobQueue(sqs: sqs, ssm: ssm, configuration: .init(queueName: "Test"), logger: logger)
+            let value = ByteBuffer(string: "Testing metadata")
+            try await jobQueue.setMetadata(key: "test", value: value)
+            let metadata = try await jobQueue.getMetadata("test")
+            #expect(metadata == value)
+            let value2 = ByteBuffer(string: "Testing metadata again")
+            try await jobQueue.setMetadata(key: "test", value: value2)
+            let metadata2 = try await jobQueue.getMetadata("test")
+            #expect(metadata2 == value2)
+        }
+    }
 }
 
 struct Counter {
