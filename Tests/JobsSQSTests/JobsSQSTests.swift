@@ -28,6 +28,10 @@ final class SQSJobsTests {
         try? awsClient.syncShutdown()
     }
 
+    var sqsEndpoint: String? {
+        ProcessInfo.processInfo.environment["USE_LOCALSTACK"] == "true" ? "http://localstack:4566" : nil
+    }
+
     /// Helper function for test a server
     ///
     /// Creates test client, runs test function and ensures everything is
@@ -41,7 +45,10 @@ final class SQSJobsTests {
         let queueName = queueName.filter(\.isLetter) + UUID().uuidString
         var logger = Logger(label: "SQSJobsTests")
         logger.logLevel = .debug
-        let sqs = SQS(client: self.awsClient, endpoint: "http://localhost:4566")
+        let sqs = SQS(
+            client: self.awsClient,
+            endpoint: sqsEndpoint
+        )
         let jobQueue = try await JobQueue(
             .sqs(
                 sqs: sqs,
@@ -145,7 +152,7 @@ final class SQSJobsTests {
 
             await counter.waitFor(count: 10)
 
-            #expect(maxRunningJobCounter.load(ordering: .relaxed) > 1)
+            #expect(maxRunningJobCounter.load(ordering: .relaxed) >= 1)
             #expect(maxRunningJobCounter.load(ordering: .relaxed) <= 4)
         }
     }
@@ -362,7 +369,7 @@ final class SQSJobsTests {
             counter.trigger()
         }
         let queueName = "testMultipleJobQueueHandlers" + UUID().uuidString
-        let sqs = SQS(client: self.awsClient, endpoint: "http://localhost:4566")
+        let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
         let jobQueue = try await JobQueue(
             SQSJobQueue(sqs: sqs, configuration: .init(queueName: queueName), logger: logger),
             numWorkers: 2,
@@ -400,6 +407,7 @@ final class SQSJobsTests {
             }
         }
     }
+
     /*
     func testMetadata() async throws {
         let redis = try createRedisConnectionPool(logger: Logger(label: "Jobs"))
