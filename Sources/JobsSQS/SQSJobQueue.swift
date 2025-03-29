@@ -15,6 +15,7 @@
 import Jobs
 import Logging
 import NIOCore
+import SotoCore
 import Synchronization
 
 #if canImport(FoundationEssentials)
@@ -98,9 +99,9 @@ public final class SQSJobQueue: JobQueueDriver {
     let activeJobs: Mutex<[JobID: ActiveJob]>
     let isStopped: Atomic<Bool>
 
-    public init(sqs: SQS, ssm: SSM, configuration: Configuration, logger: Logger) async throws {
-        self.sqs = sqs
-        self.ssm = ssm
+    public init(awsClient: AWSClient, configuration: Configuration, logger: Logger) async throws {
+        self.sqs = SQS(client: awsClient, region: configuration.region, endpoint: configuration.endpoint)
+        self.ssm = SSM(client: awsClient, region: configuration.region, endpoint: configuration.endpoint)
         self.configuration = configuration
         self.jobRegistry = .init()
         self.queueURL = try await Self.createQueue(queueName: "\(configuration.queueName)", sqs: sqs, logger: logger)
@@ -123,8 +124,10 @@ public final class SQSJobQueue: JobQueueDriver {
                 logger: logger
             )
             guard let queueUrl = createQueueResponse.queueUrl else {
-                throw SQSQueueError(.unexpectedSQSResponse, message: "GetQueueURL did not return a URL.")
+                throw SQSQueueError(.unexpectedSQSResponse, message: "CreateQueue did not return a URL.")
             }
+            logger.info("Created Queue", metadata: ["queueName": .string(queueName), "queueURL": .string(queueUrl)])
+            try await Task.sleep(for: .milliseconds(500))
             return queueUrl
         }
     }
@@ -207,7 +210,7 @@ public final class SQSJobQueue: JobQueueDriver {
     /// Helper for enqueuing jobs
     private func push<Parameters>(jobID: JobID, jobRequest: JobRequest<Parameters>, options: JobOptions) async throws {
         let buffer = try self.jobRegistry.encode(jobRequest: jobRequest)
-        let delaySeconds = options.delayUntil.map { Int($0.timeIntervalSinceNow.rounded(.up)) }
+        let delaySeconds = options.delayUntil.map { Swift.max(Int($0.timeIntervalSinceNow.rounded(.up)), 0) }
         _ = try await self.sqs.sendMessage(
             delaySeconds: delaySeconds,
             messageAttributes: ["id": SQS.MessageAttributeValue(dataType: "String", stringValue: jobID.description)],
@@ -255,7 +258,7 @@ public final class SQSJobQueue: JobQueueDriver {
     /// - Parameter key: Metadata key
     /// - Returns: Associated ByteBuffer
     public func getMetadata(_ key: String) async throws -> ByteBuffer? {
-        let response = try await ssm.getParameter(name: "SQSJobQueue/\(key)")
+        let response = try await ssm.getParameter(name: "/swift-jobs/\(key)")
         return response.parameter?.value.map { ByteBuffer(string: $0) }
     }
 
@@ -297,6 +300,7 @@ public final class SQSJobQueue: JobQueueDriver {
         } catch let error as JobQueueError {
             return .init(id: jobID, result: .failure(error))
         }
+
     }
 }
 
@@ -330,7 +334,7 @@ extension JobQueueDriver where Self == SQSJobQueue {
     /// - Parameters:
     ///   - redisConnectionPool: Redis connection pool
     ///   - configuration: configuration
-    public static func sqs(sqs: SQS, ssm: SSM, configuration: SQSJobQueue.Configuration, logger: Logger) async throws -> Self {
-        try await .init(sqs: sqs, ssm: ssm, configuration: configuration, logger: logger)
+    public static func sqs(awsClient: AWSClient, configuration: SQSJobQueue.Configuration, logger: Logger) async throws -> Self {
+        try await .init(awsClient: awsClient, configuration: configuration, logger: logger)
     }
 }

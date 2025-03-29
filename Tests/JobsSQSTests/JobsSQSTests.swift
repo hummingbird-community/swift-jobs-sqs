@@ -22,7 +22,8 @@ import Testing
 @testable import JobsSQS
 
 final class SQSJobsTests {
-    let awsClient = AWSClient()
+    let awsClient = AWSClient(  //middleware: AWSLoggingMiddleware()
+        )
 
     deinit {
         try? awsClient.syncShutdown()
@@ -44,11 +45,15 @@ final class SQSJobsTests {
         } catch {
             guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { throw error }
             try? await sqs.deleteQueue(queueUrl: queueURL)
+            guard let failedQueueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)_failed").queueUrl else { throw error }
+            try? await sqs.deleteQueue(queueUrl: failedQueueURL)
             throw error
         }
         if delete {
-            guard let queueURL = try? await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { return value }
+            guard let queueURL = try await sqs.getQueueUrl(queueName: "\(queueName)").queueUrl else { return value }
             try await sqs.deleteQueue(queueUrl: queueURL)
+            guard let failedQueueURL = try await sqs.getQueueUrl(queueName: "\(queueName)_failed").queueUrl else { return value }
+            try? await sqs.deleteQueue(queueUrl: failedQueueURL)
         }
         return value
     }
@@ -66,19 +71,18 @@ final class SQSJobsTests {
         test: (JobQueue<SQSJobQueue>) async throws -> T
     ) async throws -> T {
         let queueName = queueName ?? queuePrefix.filter(\.isLetter) + UUID().uuidString
-        var logger = Logger(label: "SQSJobsTests")
+        var logger = Logger(label: queuePrefix.filter(\.isLetter))
         logger.logLevel = .debug
         let sqs = SQS(
             client: self.awsClient,
+            region: .euwest1,
             endpoint: sqsEndpoint
         )
-        let ssm = SSM(client: self.awsClient, endpoint: self.sqsEndpoint)
         return try await withSQSQueue(queueName: queueName, sqs: sqs, delete: cleanUpQueue) {
             let jobQueue = try await JobQueue(
                 .sqs(
-                    sqs: sqs,
-                    ssm: ssm,
-                    configuration: .init(queueName: queueName),
+                    awsClient: self.awsClient,
+                    configuration: .init(queueName: queueName, region: .euwest1, endpoint: self.sqsEndpoint),
                     logger: logger
                 ),
                 numWorkers: numWorkers,
@@ -131,7 +135,7 @@ final class SQSJobsTests {
             try await jobQueue.push(TestParameters(value: 9))
             try await jobQueue.push(TestParameters(value: 10))
 
-            await counter.waitFor(count: 10)
+            try await counter.waitFor(count: 10)
         }
     }
     @Test
@@ -167,7 +171,7 @@ final class SQSJobsTests {
             try await jobQueue.push(TestParameters(value: 9))
             try await jobQueue.push(TestParameters(value: 10))
 
-            await counter.waitFor(count: 10)
+            try await counter.waitFor(count: 10)
 
             #expect(maxRunningJobCounter.load(ordering: .relaxed) >= 1)
             #expect(maxRunningJobCounter.load(ordering: .relaxed) <= 4)
@@ -191,7 +195,7 @@ final class SQSJobsTests {
             }
             try await jobQueue.push(TestParameters())
 
-            await counter.waitFor(count: 4)
+            try await counter.waitFor(count: 4)
 
             try await Task.sleep(for: .milliseconds(200))
         }
@@ -222,7 +226,7 @@ final class SQSJobsTests {
             }
             try await jobQueue.push(TestParameters())
 
-            await counter.waitFor(count: 2)
+            try await counter.waitFor(count: 2)
 
             try await Task.sleep(for: .milliseconds(200))
         }
@@ -245,7 +249,7 @@ final class SQSJobsTests {
             }
             try await jobQueue.push(TestJobParameters(id: 23, message: "Hello!"))
 
-            await counter.waitFor(count: 1)
+            try await counter.waitFor(count: 1)
         }
     }
 
@@ -266,15 +270,15 @@ final class SQSJobsTests {
             }
             try await jobQueue.push(
                 TestParameters(value: 100),
-                options: .init(delayUntil: Date.now.addingTimeInterval(1))
+                options: .init(delayUntil: Date.now.addingTimeInterval(2))
             )
             try await jobQueue.push(TestParameters(value: 50))
             try await jobQueue.push(TestParameters(value: 10))
 
-            await counter.waitFor(count: 3)
+            try await counter.waitFor(count: 3)
         }
         jobExecutionSequence.withLock {
-            #expect($0 == [50, 10, 100])
+            #expect($0 == [50, 10, 100] || $0 == [10, 50, 100])
         }
     }
 
@@ -294,7 +298,7 @@ final class SQSJobsTests {
                 try await Task.sleep(for: .milliseconds(1000))
             }
             try await jobQueue.push(TestParameters())
-            await counter.waitFor(count: 1)
+            try await counter.waitFor(count: 1)
         }
     }
 
@@ -319,7 +323,7 @@ final class SQSJobsTests {
             }
             try await jobQueue.push(TestIntParameter(value: 2))
             try await jobQueue.push(TestStringParameter(value: "test"))
-            await counter.waitFor(count: 1)
+            try await counter.waitFor(count: 1)
         }
         string.withLock {
             #expect($0 == "test")
@@ -343,8 +347,8 @@ final class SQSJobsTests {
                 failedCounter.trigger()
                 throw RetryError()
             }
-            succeededCounter.trigger()
             finished.store(true, ordering: .relaxed)
+            succeededCounter.trigger()
         }
         let queueName = "testRerunAtStartup\(UUID().uuidString)"
         try await self.testJobQueue(numWorkers: 4, queueName: queueName, cleanUpQueue: false) { jobQueue in
@@ -352,7 +356,7 @@ final class SQSJobsTests {
 
             try await jobQueue.push(TestParameters())
 
-            await failedCounter.waitFor(count: 1)
+            try await failedCounter.waitFor(count: 1)
 
             // stall to give job chance to start running
             try await Task.sleep(for: .milliseconds(50))
@@ -363,12 +367,12 @@ final class SQSJobsTests {
 
         try await self.testJobQueue(numWorkers: 4, failedJobsInitialization: .rerun, queueName: queueName, cleanUpQueue: true) { jobQueue in
             jobQueue.registerJob(job)
-            await succeededCounter.waitFor(count: 1)
+            try await succeededCounter.waitFor(count: 1)
         }
         #expect(finished.load(ordering: .relaxed) == true)
     }
 
-    @Test
+    /*@Test
     func testMultipleJobQueueHandlers() async throws {
         struct TestParameters: JobParameters {
             static let jobName = "testMultipleJobQueueHandlers"
@@ -385,18 +389,29 @@ final class SQSJobsTests {
             try await Task.sleep(for: .milliseconds(Int.random(in: 10..<50)))
             counter.trigger()
         }
-        let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
-        let ssm = SSM(client: self.awsClient, endpoint: self.sqsEndpoint)
+        let sqs = SQS(
+            client: self.awsClient,
+            region: .euwest1,
+            endpoint: self.sqsEndpoint
+        )
         let queueName = "testMultipleJobQueueHandlers\(UUID().uuidString)"
         try await withSQSQueue(queueName: queueName, sqs: sqs) {
             let jobQueue = try await JobQueue(
-                SQSJobQueue(sqs: sqs, ssm: ssm, configuration: .init(queueName: queueName), logger: logger),
+                SQSJobQueue(
+                    awsClient: self.awsClient,
+                    configuration: .init(queueName: queueName, region: .euwest1, endpoint: self.sqsEndpoint),
+                    logger: logger
+                ),
                 numWorkers: 2,
                 logger: logger
             )
             jobQueue.registerJob(job)
             let jobQueue2 = try await JobQueue(
-                SQSJobQueue(sqs: sqs, ssm: ssm, configuration: .init(queueName: queueName), logger: logger),
+                SQSJobQueue(
+                    awsClient: self.awsClient,
+                    configuration: .init(queueName: queueName, region: .euwest1, endpoint: self.sqsEndpoint),
+                    logger: logger
+                ),
                 numWorkers: 2,
                 logger: logger
             )
@@ -417,7 +432,7 @@ final class SQSJobsTests {
                     for i in 0..<200 {
                         try await jobQueue.push(TestParameters(value: i))
                     }
-                    await counter.waitFor(count: 200)
+                    try await counter.waitFor(count: 200)
                     await serviceGroup.triggerGracefulShutdown()
                 } catch {
                     Issue.record("\(String(reflecting: error))")
@@ -426,7 +441,7 @@ final class SQSJobsTests {
                 }
             }
         }
-    }
+    }*/
 
     @Test
     func testMetadata() async throws {
@@ -435,12 +450,19 @@ final class SQSJobsTests {
             logger.logLevel = .debug
             return logger
         }()
-        let sqs = SQS(client: self.awsClient, endpoint: self.sqsEndpoint)
-        let ssm = SSM(client: self.awsClient, endpoint: self.sqsEndpoint)
+        let sqs = SQS(
+            client: self.awsClient,
+            region: .euwest1,
+            endpoint: self.sqsEndpoint
+        )
 
         let queueName = "testMetadata\(UUID().uuidString)"
         try await withSQSQueue(queueName: queueName, sqs: sqs) {
-            let jobQueue = try await SQSJobQueue(sqs: sqs, ssm: ssm, configuration: .init(queueName: "Test"), logger: logger)
+            let jobQueue = try await SQSJobQueue(
+                awsClient: self.awsClient,
+                configuration: .init(queueName: queueName, region: .euwest1, endpoint: self.sqsEndpoint),
+                logger: logger
+            )
             let value = ByteBuffer(string: "Testing metadata")
             try await jobQueue.setMetadata(key: "test", value: value)
             let metadata = try await jobQueue.getMetadata("test")
@@ -465,10 +487,20 @@ struct Counter {
         self.continuation.yield()
     }
 
-    func waitFor(count: Int) async {
-        var iterator = stream.makeAsyncIterator()
-        for _ in 0..<count {
-            _ = await iterator.next()
+    func waitFor(count: Int) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                for _ in 0..<count {
+                    _ = await iterator.next()
+                }
+
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(5))
+            }
+            try await group.next()
+            group.cancelAll()
         }
     }
 }

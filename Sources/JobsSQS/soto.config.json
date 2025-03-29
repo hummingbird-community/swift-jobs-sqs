@@ -1,0 +1,12 @@
+{
+    "services": {
+        "sqs": {
+            "operations": ["createQueue", "deleteQueue", "getQueueUrl", "sendMessage", "receiveMessage", "deleteMessage"],
+            "access": "internal"
+        },
+        "ssm": {
+            "operations": ["getParameter", "putParameter"],
+            "access": "internal"
+        }
+    }
+}
