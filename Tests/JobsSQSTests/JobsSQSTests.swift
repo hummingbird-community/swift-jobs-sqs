@@ -347,7 +347,6 @@ final class SQSJobsTests {
                 failedCounter.trigger()
                 throw RetryError()
             }
-            finished.store(true, ordering: .relaxed)
             succeededCounter.trigger()
         }
         let queueName = "testRerunAtStartup\(UUID().uuidString)"
@@ -369,10 +368,9 @@ final class SQSJobsTests {
             jobQueue.registerJob(job)
             try await succeededCounter.waitFor(count: 1)
         }
-        #expect(finished.load(ordering: .relaxed) == true)
     }
 
-    /*@Test
+    @Test
     func testMultipleJobQueueHandlers() async throws {
         struct TestParameters: JobParameters {
             static let jobName = "testMultipleJobQueueHandlers"
@@ -441,7 +439,7 @@ final class SQSJobsTests {
                 }
             }
         }
-    }*/
+    }
 
     @Test
     func testMetadata() async throws {
