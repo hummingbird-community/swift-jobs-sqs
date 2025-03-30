@@ -1,0 +1,15 @@
+ci:
+  validate:
+    swift-format: true
+    headers: true
+  env:
+    AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
+    AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
+    LOCALSTACK_ENDPOINT: "http://localstack:4566"
+  # Enable Linux CI
+  linux:
+    # Docker container to use in linux CI
+    images: ['swift:6.0', 'swiftlang/swift:nightly-6.1-jammy']
+    services: |
+      localstack:
+              image: localstack/localstack

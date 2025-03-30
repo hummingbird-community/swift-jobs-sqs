@@ -9,13 +9,15 @@ on:
     - '**.yml'
   pull_request:
   workflow_dispatch:
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-ci
   cancel-in-progress: true
 
 env:
-  AWS_ACCESS_KEY_ID : "MYACCESSKEYID"
-  AWS_SECRET_ACCESS_KEY : "MYSECRETACCESSKEY"
+  AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
+  AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
+  LOCALSTACK_ENDPOINT: "http://localstack:4566"
 
 jobs:
   linux:
@@ -26,11 +28,9 @@ jobs:
         image: ["swift:6.0", "swiftlang/swift:nightly-6.1-jammy"]
     services:
       localstack:
-        image: localstack/localstack        
+        image: localstack/localstack
     container:
       image: ${{ matrix.image }}
-      env:
-        LOCALSTACK_ENDPOINT : "http://localstack:4566"
     steps:
     - name: Checkout
       uses: actions/checkout@v4
