@@ -3,7 +3,7 @@
 ##
 ## This source file is part of the Hummingbird server framework project
 ##
-## Copyright (c) 2021-2024 the Hummingbird authors
+## Copyright (c) 2021-2025 the Hummingbird authors
 ## Licensed under Apache License v2.0
 ##
 ## See LICENSE.txt for license information
@@ -26,15 +26,8 @@
 ##
 ##===----------------------------------------------------------------------===##
 
-SWIFT_FORMAT_VERSION=0.53.10
-
 set -eu
 here="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-function replace_acceptable_years() {
-    # this needs to replace all acceptable forms with 'YEARS'
-    sed -e 's/20[12][0-9]-20[12][0-9]/YEARS/' -e 's/20[12][0-9]/YEARS/' -e '/^#!/ d'
-}
 
 printf "=> Checking format... "
 FIRST_OUT="$(git status --porcelain)"
@@ -49,10 +42,13 @@ if [[ "$FIRST_OUT" != "$SECOND_OUT" ]]; then
 else
   printf "\033[0;32mokay.\033[0m\n"
 fi
-printf "=> Checking license headers... "
-tmp=$(mktemp /tmp/.soto-core-sanity_XXXXXX)
+function replace_acceptable_years() {
+    # this needs to replace all acceptable forms with 'YEARS'
+    sed -e 's/20[12][0-9]-20[12][0-9]/YEARS/' -e 's/20[12][0-9]/YEARS/' -e '/^#!/ d'
+}
 
-exit 0
+printf "=> Checking license headers... "
+tmp=$(mktemp /tmp/.hb_validate_XXXXXX)
 
 for language in swift-or-c; do
   declare -a matching_files

@@ -3,6 +3,15 @@ name: Swift nightly build
 on:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-nightly
+  cancel-in-progress: true
+
+env:
+  AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
+  LOCALSTACK_ENDPOINT: "http://localstack:4566"
+  AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -10,7 +19,9 @@ jobs:
     strategy:
       matrix:
         image: ['nightly-focal', 'nightly-jammy', 'nightly-amazonlinux2']
-    
+    services:
+      localstack:
+        image: localstack/localstack
     container:
       image: swiftlang/swift:${{ matrix.image }}
     steps:
