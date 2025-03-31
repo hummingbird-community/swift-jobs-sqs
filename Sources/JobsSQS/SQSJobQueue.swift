@@ -1,12 +1,11 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Hummingbird server framework project
+// This source file is part of the swift-jobs-sqs project
 //
-// Copyright (c) 2025 the Hummingbird authors
+// Copyright (c) 2025 the swift-jobs-sqs authors
 // Licensed under Apache License v2.0
 //
 // See LICENSE.txt for license information
-// See hummingbird/CONTRIBUTORS.txt for the list of Hummingbird authors
 //
 // SPDX-License-Identifier: Apache-2.0
 //

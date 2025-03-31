@@ -62,40 +62,15 @@ for language in swift-or-c; do
         cat > "$tmp" <<"EOF"
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Hummingbird server framework project
+// This source file is part of the swift-jobs-sqs project
 //
-// Copyright (c) YEARS the Hummingbird authors
-// Licensed under Apache License v2.0
-//
-// See LICENSE.txt for license information
-// See hummingbird/CONTRIBUTORS.txt for the list of Hummingbird authors
-//
-// SPDX-License-Identifier: Apache-2.0
-//
+// Copyright (c) YEARS the swift-jobs-sqs authors
 //===----------------------------------------------------------------------===//
 EOF
         ;;
-      bash)
-        matching_files=( -name '*.sh' )
-        cat > "$tmp" <<"EOF"
-##===----------------------------------------------------------------------===##
-##
-## This source file is part of the Hummingbird server framework project
-##
-## Copyright (c) YEARS the Hummingbird authors
-## Licensed under Apache License v2.0
-##
-## See LICENSE.txt for license information
-## See hummingbird/CONTRIBUTORS.txt for the list of Hummingbird authors
-##
-## SPDX-License-Identifier: Apache-2.0
-##
-##===----------------------------------------------------------------------===##
-EOF
-      ;;
-    *)
-      echo >&2 "ERROR: unknown language '$language'"
-      ;;
+      *)
+        echo >&2 "ERROR: unknown language '$language'"
+        ;;
   esac
 
   lines_to_compare=$(cat "$tmp" | wc -l | tr -d " ")
