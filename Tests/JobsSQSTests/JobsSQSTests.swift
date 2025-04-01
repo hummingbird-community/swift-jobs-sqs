@@ -484,7 +484,7 @@ struct Counter {
         self.continuation.yield()
     }
 
-    func waitFor(count: Int) async throws {
+    func waitFor(count: Int, timeout: Duration = .seconds(5)) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 var iterator = stream.makeAsyncIterator()
@@ -494,7 +494,7 @@ struct Counter {
 
             }
             group.addTask {
-                try await Task.sleep(for: .seconds(5))
+                try await Task.sleep(for: timeout)
             }
             try await group.next()
             group.cancelAll()
