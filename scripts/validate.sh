@@ -65,6 +65,12 @@ for language in swift-or-c; do
 // This source file is part of the swift-jobs-sqs project
 //
 // Copyright (c) YEARS the swift-jobs-sqs authors
+// Licensed under Apache License v2.0
+//
+// See LICENSE.txt for license information
+//
+// SPDX-License-Identifier: Apache-2.0
+//
 //===----------------------------------------------------------------------===//
 EOF
         ;;

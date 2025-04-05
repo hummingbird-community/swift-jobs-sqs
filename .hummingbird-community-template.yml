@@ -1,7 +1,10 @@
 ci:
   validate:
     swift-format: true
-    headers: true
+    headers:
+      license:
+        name: Apache License v2.0
+        identifier: Apache-2.0
   env:
     AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
     AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"

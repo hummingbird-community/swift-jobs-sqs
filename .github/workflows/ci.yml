@@ -15,9 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  LOCALSTACK_ENDPOINT: "http://localstack:4566"
   AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
   AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
-  LOCALSTACK_ENDPOINT: "http://localstack:4566"
 
 jobs:
   linux:
