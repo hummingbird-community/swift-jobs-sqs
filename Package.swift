@@ -10,7 +10,7 @@ let package = Package(
         .library(name: "JobsSQS", targets: ["JobsSQS"])
     ],
     dependencies: [
-        .package(url: "https://github.com/hummingbird-project/swift-jobs.git", from: "1.0.0-beta.8"),
+        .package(url: "https://github.com/hummingbird-project/swift-jobs.git", from: "1.0.0-rc.1"),
         .package(url: "https://github.com/soto-project/soto-core.git", from: "7.4.0"),
         .package(url: "https://github.com/soto-project/soto-codegenerator.git", from: "7.6.0"),
     ],
