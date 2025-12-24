@@ -52,7 +52,7 @@ public final class SQSJobQueue: JobQueueDriver {
 
         ///  Initializer for JobOptions
         /// - Parameter delayUntil: Whether job execution should be delayed until a later date
-        public init(delayUntil: Date?) {
+        public init(delayUntil: Date) {
             self.delayUntil = delayUntil
         }
     }
