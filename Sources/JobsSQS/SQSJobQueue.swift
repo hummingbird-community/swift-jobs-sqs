@@ -43,11 +43,11 @@ public final class SQSJobQueue: JobQueueDriver {
     /// Options for job pushed to queue
     public struct JobOptions: JobOptionsProtocol {
         /// Delay running job until
-        public var delayUntil: Date?
+        public var delayUntil: Date
 
         /// Default initializer for JobOptions
         public init() {
-            self.delayUntil = nil
+            self.delayUntil = .now
         }
 
         ///  Initializer for JobOptions
@@ -209,7 +209,7 @@ public final class SQSJobQueue: JobQueueDriver {
     /// Helper for enqueuing jobs
     private func push<Parameters>(jobID: JobID, jobRequest: JobRequest<Parameters>, options: JobOptions) async throws {
         let buffer = try self.jobRegistry.encode(jobRequest: jobRequest)
-        let delaySeconds = options.delayUntil.map { Swift.max(Int($0.timeIntervalSinceNow.rounded(.up)), 0) }
+        let delaySeconds = Swift.max(Int(options.delayUntil.timeIntervalSinceNow.rounded(.up)), 0)
         _ = try await self.sqs.sendMessage(
             delaySeconds: delaySeconds,
             messageAttributes: ["id": SQS.MessageAttributeValue(dataType: "String", stringValue: jobID.description)],
