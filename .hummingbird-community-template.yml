@@ -12,7 +12,6 @@ ci:
   # Enable Linux CI
   linux:
     # Docker container to use in linux CI
-    images: ['swift:6.0', 'swiftlang/swift:nightly-6.1-jammy']
     services: |
       localstack:
               image: localstack/localstack
