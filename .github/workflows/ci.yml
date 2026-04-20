@@ -29,6 +29,8 @@ jobs:
     services:
       localstack:
         image: localstack/localstack
+        env: 
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
     container:
       image: ${{ matrix.image }}
     steps:
