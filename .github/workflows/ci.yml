@@ -16,8 +16,8 @@ concurrency:
 
 env:
   AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
-  LOCALSTACK_ENDPOINT: "http://localstack:4566"
   AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
+  LOCALSTACK_ENDPOINT: "http://localstack:4566"
 
 jobs:
   linux:
@@ -25,10 +25,12 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        image: ["swift:6.0", "swiftlang/swift:nightly-6.1-jammy"]
+        image: ["swift:6.1", "swift:6.2", "swift:6.3"]
     services:
       localstack:
         image: localstack/localstack
+        env: 
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
     container:
       image: ${{ matrix.image }}
     steps:
