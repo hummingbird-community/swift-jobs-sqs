@@ -15,9 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
-  AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
   LOCALSTACK_ENDPOINT: "http://localstack:4566"
+  AWS_SECRET_ACCESS_KEY: "MYSECRETACCESSKEY"
+  AWS_ACCESS_KEY_ID: "MYACCESSKEYID"
 
 jobs:
   linux:
@@ -29,8 +29,6 @@ jobs:
     services:
       localstack:
         image: localstack/localstack
-        env: 
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
     container:
       image: ${{ matrix.image }}
     steps:
